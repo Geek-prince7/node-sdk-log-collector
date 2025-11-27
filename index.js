@@ -2,6 +2,9 @@
 // Author: Prince Dubey
 // License: ISC
 
+const getNetworkMetadata = require("./network_meta");
+const getServerMetadata = require("./server_meta");
+
 
 // Logger Entry point
 // Logger constructor - accepts access token , validate access token (api call to check token valid or not returns accountId), fetch configurations (like interval time and batch size)
@@ -36,12 +39,17 @@ class DexterLogger {
         UPLOAD_METRICS: "/uploadMetrics",
         UPLOAD_TRACES: "/uploadTraces",
     }
-    constructor(accessToken) {
+    constructor(accessToken, serviceName) {
         this.HOST = "http://localhost:3000";
         if (!is_string(accessToken)) {
             throw new Error("Access token must be a string");
         }
+        if (!is_string(serviceName)) {
+            throw new Error("Service name must be a string");
+        }
         this.accessToken = accessToken;
+        this.serviceName = serviceName;
+        this.serverMeta = getServerMetadata();
         this.validateAccessToken();
         this.fetchConfigurations();
         this.applyConfigurations();
@@ -63,11 +71,180 @@ class DexterLogger {
             },
             body: JSON.stringify({ accessToken: this.accessToken }),
         });
-        const data = await response.json();
+        const data = await this.checkResonse(response);
         if (!data.valid) {
             throw new Error("Invalid access token");
         }
         this.accountId = data.accountId;
+    }
+
+    async fetchConfigurations() {
+        const response = await fetch(`${this.HOST}${DexterLogger.URLS.FETCH_CONFIGURATIONS}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ accessToken: this.accessToken }),
+        });
+        const data = await this.checkResonse(response);
+        if (!data.valid) {
+            throw new Error("Invalid access token");
+        }
+        this.configurations = data.configurations;
+    }
+
+    async applyConfigurations() {
+        this.batchSize = this.configurations.batchSize;
+        this.intervalTime = this.configurations.intervalTime;
+        this.anonymizeKeys = this.configurations.anonymizeKeys;
+    }
+
+    async initializeQueues() {
+        this.logQueue = [];
+        this.metricQueue = [];
+        this.traceQueue = [];
+
+        this.requests = new HashMap();
+        this.responses = new HashMap();
+    }
+
+    async initializeUploadFunction() {
+        this.uploadLogs = this.uploadLogs.bind(this);
+        this.uploadMetrics = this.uploadMetrics.bind(this);
+        this.uploadTraces = this.uploadTraces.bind(this);
+    }
+
+    async initializeMiddleware() {
+        this.middleware = this.middleware.bind(this);
+    }
+
+    async initializeErrorHandling() {
+        this.errorHandler = this.errorHandler.bind(this);
+    }
+
+    async initializeTraces() {
+        this.traces = this.traces.bind(this);
+    }
+
+    async initializeConsoleOverrides() {
+        this.consoleOverrides = this.consoleOverrides.bind(this);
+    }
+
+    async initializeMetaData() {
+        this.metaData = this.metaData.bind(this);
+    }
+
+    async uploadLogs() {
+
+    }
+
+    async uploadMetrics() {
+
+    }
+
+    async uploadTraces() {
+
+    }
+
+    async requestMiddleware(req, res, next) {
+        req.traceId = req.headers.traceparent ?? this.generateTraceId();
+        req.spanId = this.generateSpanId();
+        let context = {
+            traceId: req.traceId,
+            spanId: req.spanId,
+            serviceName: this.serviceName,
+            startTime: new Date(),
+            duration: 0,
+            request: {
+                body: req.body,
+                headers: req.headers,
+                query: req.query,
+                params: req.params,
+                path: req.path,
+                route: req.route,
+                method: req.method,
+            },
+            ip: this.getClientIp(req),
+            region: req.region,
+            accountId: this.accountId,
+            serverMeta: this.serverMeta,
+            networkMeta: this.getNetworkMetadata(req),
+
+            //other meta data
+
+            // request: req,
+            // response: res,
+            // type: 'rq'
+        }
+
+        this.requests.set(req.traceId, context);
+        next();
+    }
+
+    async responseMiddleware(req, res, next) {
+        let context = this.requests.get(req.traceId);
+        context.duration = new Date() - context.startTime;
+        context.response = {
+            body: res.body,
+            // headers: res.headers,
+            status: res.status,
+            statusText: res.statusText,
+            length: res.length,
+            type: res.type,
+            
+            
+        }
+        this.responses.set(req.traceId, context);
+        next();
+    }
+
+    getNetworkMetadata(req) {
+        return getNetworkMetadata(req)
+    }
+    getClientIp(req) {
+        return (
+            req.headers["x-client-ip"] ||
+            req.headers["x-forwarded-for"]?.split(",")[0] ||
+            req.headers["x-real-ip"] ||
+            req.connection?.remoteAddress ||
+            req.socket?.remoteAddress ||
+            req.connection?.socket?.remoteAddress ||
+            null
+        );
+    }
+
+
+    async responseMiddleware(req, res, next) {
+
+    }
+
+    async errorHandler() {
+
+    }
+
+    async traces() {
+
+    }
+
+    async consoleOverrides() {
+
+    }
+
+    async metaData() {
+
+    }
+
+    async checkResonse(response) {
+        if (!response.ok) {
+            throw new Error("Network response was not ok");
+        }
+        if (response.status !== 200) {
+            await response.json().then((data) => {
+                data.valid = false;
+                return data;
+            });
+        }
+        return await response.json();
     }
 
 }
