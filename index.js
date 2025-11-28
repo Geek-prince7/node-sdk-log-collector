@@ -97,6 +97,14 @@ class DexterLogger {
         this.batchSize = this.configurations.batchSize;
         this.intervalTime = this.configurations.intervalTime;
         this.anonymizeKeys = this.configurations.anonymizeKeys;
+        this.validateIntervalTime();
+        this.intervalTimer = this.cronUploadLogs();
+    }
+
+    async validateIntervalTime() {
+        if (this.intervalTime < 1000) {
+            throw new Error("Interval time must be greater than 1000");
+        }
     }
 
     async initializeQueues() {
@@ -135,7 +143,37 @@ class DexterLogger {
     }
 
     async uploadLogs() {
+        if (this.logQueue.length >= this.batchSize) {
+            this.uploadLogsToServer();
+        }
+    }
 
+    async cronUploadLogs() {
+        console.log("Cron Upload Logs Invoked");
+        const interval = setInterval(() => {
+            this.uploadLogsToServer();
+        }, this.intervalTime);
+        return interval;
+    }
+
+    async uploadLogsToServer() {
+        console.log("Uploading Logs To Server...");
+        const response = fetch(`${this.HOST}${DexterLogger.URLS.UPLOAD_LOGS}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ accessToken: this.accessToken, logs: this.logQueue, accountId: this.accountId }),
+        });
+        const data = await this.checkResonse(response);
+        if (!data.valid) {
+            throw new Error("Invalid access token");
+        }
+        if (data.success) {
+            this.logQueue = [];
+            this.requests.clear();
+            this.responses.clear();
+        }
     }
 
     async uploadMetrics() {
@@ -147,6 +185,7 @@ class DexterLogger {
     }
 
     async requestMiddleware(req, res, next) {
+        console.log("Request Middleware Invoked");
         req.traceId = req.headers.traceparent ?? this.generateTraceId();
         req.spanId = this.generateSpanId();
         let context = {
@@ -191,10 +230,12 @@ class DexterLogger {
             statusText: res.statusText,
             length: res.length,
             type: res.type,
-            
-            
+
+
         }
         this.responses.set(req.traceId, context);
+        this.logQueue.push(context);
+        this.uploadLogs();
         next();
     }
 
