@@ -39,7 +39,7 @@ class DexterLogger {
         UPLOAD_METRICS: "/uploadMetrics",
         UPLOAD_TRACES: "/uploadTraces",
     }
-    constructor(accessToken, serviceName) {
+    constructor(accessToken, serviceName, overRideConsoleArray = []) {
         this.HOST = "http://localhost:3000";
         if (!is_string(accessToken)) {
             throw new Error("Access token must be a string");
@@ -50,9 +50,30 @@ class DexterLogger {
         this.accessToken = accessToken;
         this.serviceName = serviceName;
         this.serverMeta = getServerMetadata();
+        this.orignalConsole = {
+            log: console.log,
+            error: console.error,
+            warn: console.warn,
+            info: console.info,
+            debug: console.debug,
+            trace: console.trace,
+        };
+
+        try {
+            overRideConsoleArray.forEach((consoleMethod) => {
+                //fetch function name parse to sting then use -1 arr to find name and set orignalconsole.name = consolemethod
+                const functionName = consoleMethod.toString().split(".")[consoleMethod.toString().split(".").length - 1];
+                if (this.orignalConsole[functionName]) {
+                    this.orignalConsole[functionName] = consoleMethod;
+                }
+            });
+        } catch (e) {
+            console.error("Error in overriding console methods", e);
+        }
         this.validateAccessToken();
         this.fetchConfigurations();
         this.applyConfigurations();
+        this.initializeConsoleOverrides();
         this.initializeQueues();
         this.initializeUploadFunction();
         this.initializeMiddleware();
@@ -101,6 +122,10 @@ class DexterLogger {
         this.intervalTimer = this.cronUploadLogs();
     }
 
+    async applyConsoleOverrides() {
+
+    }
+
     async validateIntervalTime() {
         if (this.intervalTime < 1000) {
             throw new Error("Interval time must be greater than 1000");
@@ -111,6 +136,7 @@ class DexterLogger {
         this.logQueue = [];
         this.metricQueue = [];
         this.traceQueue = [];
+        this.consoleQueue = [];
 
         this.requests = new HashMap();
         this.responses = new HashMap();
@@ -135,7 +161,7 @@ class DexterLogger {
     }
 
     async initializeConsoleOverrides() {
-        this.consoleOverrides = this.consoleOverrides.bind(this);
+
     }
 
     async initializeMetaData() {
