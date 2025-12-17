@@ -68,7 +68,7 @@ class DexterLogger {
                 }
             });
         } catch (e) {
-            console.error("Error in overriding console methods", e);
+            console.error("Error in overriding console methods ==>", e);
         }
         this.validateAccessToken();
         this.fetchConfigurations();
